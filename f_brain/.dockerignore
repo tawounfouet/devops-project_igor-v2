@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+README.md
+
+# Documentation
+docs/
+*.md
+
+# Docker
+.dockerignore
+Dockerfile
+docker-compose*.yml
+
+# Development tools
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+pids
+*.pid
+*.seed
+
+# Environment variables
+.env*
+!.env.example
+
+# Temporary files
+tmp/
+temp/

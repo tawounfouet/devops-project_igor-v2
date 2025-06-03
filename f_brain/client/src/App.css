@@ -1,0 +1,23 @@
+body {
+  margin: 0;
+  font-family: "Segoe UI", sans-serif;
+  background: #0f172a;
+  color: white;
+}
+
+.app-container {
+  display: flex;
+  height: 100vh;
+}
+
+.sidebar {
+  width: 25%;
+  background-color: #1e293b;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.main {
+  flex: 1;
+  padding: 2rem;
+}

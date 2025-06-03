@@ -1,0 +1,153 @@
+networks:
+  backend:
+    driver: bridge # isolation du trafic inter-services
+
+volumes:
+  pgdata:
+  prometheus_data:
+  grafana_data:
+
+services:
+  nginx:
+    build:
+      context: ./proxy
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./proxy/default.conf:/etc/nginx/conf.d/default.conf
+    networks: [backend]
+    depends_on:
+      - frontend
+      - web
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    ports:
+      - "15672:15672"
+    env_file: .env
+    networks: [backend]
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  grafana:
+    image: grafana/grafana:latest
+    env_file: .env
+    restart: always
+    ports:
+      - "3003:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./grafana.ini:/etc/grafana/grafana.ini:ro
+      - grafana_data:/var/lib/grafana
+    networks: [backend]
+    depends_on:
+      prometheus:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider http://localhost:9090/-/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  db:
+    image: postgres:latest
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    env_file: .env
+    command: >
+      sh -c "
+        python manage.py collectstatic --noinput &&
+        python manage.py migrate &&
+        echo \"from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.filter(username='admin').exists() or User.objects.create_superuser('admin', 'admin@example.com', 'admin')\" | python manage.py shell &&
+        python manage.py runserver 0.0.0.0:8000
+      "
+    networks: [backend]
+    expose:
+      - "8000"
+    ports:
+    - "8000:8000"
+    volumes:
+      - ./server:/app
+    environment:
+      - USE_POSTGRES=true
+      - DJANGO_SETTINGS_MODULE=server_config.settings
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  celery:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    env_file: .env
+    command: celery -A server_config worker --loglevel=info
+    environment:
+      USE_POSTGRES: "true"
+      POSTGRES_DB: ${POSTGRES_DB:-devops_db}
+      POSTGRES_USER: ${POSTGRES_USER:-devops_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devops_pass}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      PYTHONDONTWRITEBYTECODE: 1
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./server:/app
+    networks: [backend]
+    depends_on: [web, rabbitmq]
+
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "4173:4173"
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    networks: [backend]
+    environment:
+      - NODE_ENV=development
+
