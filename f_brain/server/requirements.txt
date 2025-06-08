@@ -9,3 +9,4 @@ requests
 python-dotenv
 djangorestframework
 django-cors-headers
+whitenoise
