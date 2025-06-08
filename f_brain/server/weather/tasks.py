@@ -1,4 +1,3 @@
-# filepath: /Users/awf/Projects/drafts/03Devops-2025/f_brain/server/weather/tasks.py
 from celery import shared_task
 import time
 import logging

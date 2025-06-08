@@ -1,9 +1,10 @@
 import os
-import json
 import requests
-from django.http import JsonResponse
-from django.views.decorators.http import require_http_methods
+from rest_framework import status
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
 from .models import WeatherSearch
+from .serializers import WeatherSearchSerializer
 from .tasks import async_weather_processing
 from dotenv import load_dotenv
 
@@ -14,17 +15,17 @@ OPENWEATHERMAP_API_KEY = os.getenv(
 )
 
 
-@require_http_methods(["GET"])
+@api_view(["GET"])
 def get_weather(request):
     """
     Endpoint pour obtenir les données météo d'une ville
     et les enregistrer dans la base de données
     """
-    city = request.GET.get("city")
+    city = request.query_params.get("city")
     if not city:
-        return JsonResponse(
+        return Response(
             {"error": "Le paramètre 'city' est requis"},
-            status=400,
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
     # Call OpenWeatherMap API
@@ -60,57 +61,27 @@ def get_weather(request):
             }
         )
 
-        # Transformer l'objet en dictionnaire pour la réponse JSON
-        saved_record = {
-            "id": weather_record.id,
-            "city": weather_record.city,
-            "temperature": weather_record.temperature,
-            "humidity": weather_record.humidity,
-            "wind_speed": weather_record.wind_speed,
-            "pressure": weather_record.pressure,
-            "description": weather_record.description,
-            "icon": weather_record.icon,
-            "country": weather_record.country,
-            "searched_at": weather_record.searched_at.isoformat() if hasattr(weather_record, 'searched_at') else None,
-        }
+        # Transformer en format sérialisé
+        serializer = WeatherSearchSerializer(weather_record)
 
-        return JsonResponse({"data": weather_data, "saved_record": saved_record})
+        return Response({"data": weather_data, "saved_record": serializer.data})
 
     except requests.exceptions.RequestException as e:
-        return JsonResponse({"error": str(e)}, status=500)
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     except KeyError as e:
-        return JsonResponse(
+        return Response(
             {"error": f"Données de l'API incorrectes: {str(e)}"},
-            status=500,
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
 
-@require_http_methods(["GET"])
+@api_view(["GET"])
 def get_weather_history(request):
     """
     Endpoint pour récupérer l'historique des recherches météo
     """
-    try:
-        limit = int(request.GET.get("limit", 10))
-    except ValueError:
-        limit = 10
-    
+    limit = int(request.query_params.get("limit", 10))
     history = WeatherSearch.objects.all()[:limit]
 
-    # Transformer les objets en dictionnaires
-    history_data = []
-    for record in history:
-        history_data.append({
-            "id": record.id,
-            "city": record.city,
-            "temperature": record.temperature,
-            "humidity": record.humidity,
-            "wind_speed": record.wind_speed,
-            "pressure": record.pressure,
-            "description": record.description,
-            "icon": record.icon,
-            "country": record.country,
-            "searched_at": record.searched_at.isoformat() if hasattr(record, 'searched_at') else None,
-        })
-
-    return JsonResponse(history_data, safe=False)
+    serializer = WeatherSearchSerializer(history, many=True)
+    return Response(serializer.data)
